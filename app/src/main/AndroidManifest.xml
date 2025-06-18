@@ -11,6 +11,11 @@
         android:allowBackup="true"
         android:label="CameraXCircle"
         android:theme="@style/Theme.CameraXCircle">
+        <application
+    ...
+    android:requestLegacyExternalStorage="true">
+    ...
+</application>
 
         <activity android:name=".MainActivity"
             android:exported="true"
