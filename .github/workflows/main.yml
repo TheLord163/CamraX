@@ -25,6 +25,9 @@ jobs:
         with:
           gradle-version: '8.6'
 
+      - name: Print Gradle version
+        run: gradle -v
+
       - name: Build debug APK
         run: gradle assembleDebug
 
