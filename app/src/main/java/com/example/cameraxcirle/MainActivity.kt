@@ -11,24 +11,26 @@ import androidx.activity.ComponentActivity
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.*
-import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.camera.view.PreviewView
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var previewView: PreviewView
     private lateinit var recordButton: ImageButton
+    private lateinit var switchButton: ImageButton
+
     private var videoCapture: VideoCapture<Recorder>? = null
     private var recording: Recording? = null
 
-    companion object {
-        private const val REQUEST_CODE_PERMISSIONS = 10
-        private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
-    }
+    private var cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+    private lateinit var cameraExecutor: ExecutorService
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,36 +38,46 @@ class MainActivity : ComponentActivity() {
 
         previewView = findViewById(R.id.previewView)
         recordButton = findViewById(R.id.recordButton)
+        switchButton = findViewById(R.id.switchCameraButton)
+
+        cameraExecutor = Executors.newSingleThreadExecutor()
 
         if (allPermissionsGranted()) {
             startCamera()
         } else {
-            ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO),
+                10
+            )
         }
 
         recordButton.setOnClickListener {
             if (recording == null) startRecording() else stopRecording()
         }
-    }
 
-    private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
-        ContextCompat.checkSelfPermission(baseContext, it) == PackageManager.PERMISSION_GRANTED
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        if (requestCode == REQUEST_CODE_PERMISSIONS) {
-            if (allPermissionsGranted()) {
-                startCamera()
+        switchButton.setOnClickListener {
+            cameraSelector = if (cameraSelector == CameraSelector.DEFAULT_FRONT_CAMERA) {
+                CameraSelector.DEFAULT_BACK_CAMERA
             } else {
-                finish() // Закрыть приложение, если разрешения не даны
+                CameraSelector.DEFAULT_FRONT_CAMERA
             }
+            startCamera()
         }
+    }
+
+    private fun allPermissionsGranted() = arrayOf(
+        Manifest.permission.CAMERA,
+        Manifest.permission.RECORD_AUDIO
+    ).all {
+        ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
+
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
@@ -75,26 +87,32 @@ class MainActivity : ComponentActivity() {
                 .build()
             videoCapture = VideoCapture.withOutput(recorder)
 
-            val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
-
             try {
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(this, cameraSelector, preview, videoCapture)
+                cameraProvider.bindToLifecycle(
+                    this,
+                    cameraSelector,
+                    preview,
+                    videoCapture
+                )
             } catch (e: Exception) {
-                Log.e("CameraX", "Use case binding failed", e)
+                Log.e("CameraX", "Binding failed", e)
             }
+
         }, ContextCompat.getMainExecutor(this))
     }
 
     private fun startRecording() {
-        val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
+        val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
+            .format(System.currentTimeMillis())
         val file = File(externalCacheDir, "$name.mp4")
-        val mediaStoreOutput = FileOutputOptions.Builder(file).build()
-        val curRecording = videoCapture?.output
-            ?.prepareRecording(this, mediaStoreOutput)
+
+        val outputOptions = FileOutputOptions.Builder(file).build()
+        recording = videoCapture?.output
+            ?.prepareRecording(this, outputOptions)
             ?.withAudioEnabled()
-            ?.start(ContextCompat.getMainExecutor(this)) { recordEvent ->
-                when (recordEvent) {
+            ?.start(ContextCompat.getMainExecutor(this)) { event ->
+                when (event) {
                     is VideoRecordEvent.Start -> {
                         recordButton.setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
                     }
@@ -105,7 +123,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-        recording = curRecording
     }
 
     private fun stopRecording() {
@@ -117,8 +134,25 @@ class MainActivity : ComponentActivity() {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "video/mp4"
             putExtra(Intent.EXTRA_STREAM, uri)
-            setPackage("org.telegram.messenger")
+            `package` = "org.telegram.messenger"
         }
-        startActivity(Intent.createChooser(intent, "Share to Telegram"))
+        startActivity(Intent.createChooser(intent, "Share video"))
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        if (requestCode == 10 && allPermissionsGranted()) {
+            startCamera()
+        } else {
+            super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        cameraExecutor.shutdown()
     }
 }
