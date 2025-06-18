@@ -2,17 +2,17 @@ package com.example.cameraxcircle
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.widget.ImageButton
 import androidx.activity.ComponentActivity
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.Preview
+import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.*
 import androidx.camera.view.PreviewView
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.io.File
 import java.text.SimpleDateFormat
@@ -25,6 +25,11 @@ class MainActivity : ComponentActivity() {
     private var videoCapture: VideoCapture<Recorder>? = null
     private var recording: Recording? = null
 
+    companion object {
+        private const val REQUEST_CODE_PERMISSIONS = 10
+        private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -32,15 +37,28 @@ class MainActivity : ComponentActivity() {
         previewView = findViewById(R.id.previewView)
         recordButton = findViewById(R.id.recordButton)
 
-        val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-            if (it[Manifest.permission.CAMERA] == true && it[Manifest.permission.RECORD_AUDIO] == true) {
-                startCamera()
-            }
+        if (allPermissionsGranted()) {
+            startCamera()
+        } else {
+            ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
         }
-        permissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
 
         recordButton.setOnClickListener {
             if (recording == null) startRecording() else stopRecording()
+        }
+    }
+
+    private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
+        ContextCompat.checkSelfPermission(baseContext, it) == PackageManager.PERMISSION_GRANTED
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        if (requestCode == REQUEST_CODE_PERMISSIONS) {
+            if (allPermissionsGranted()) {
+                startCamera()
+            } else {
+                finish() // Закрыть приложение, если разрешения не даны
+            }
         }
     }
 
@@ -48,7 +66,6 @@ class MainActivity : ComponentActivity() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
-
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
@@ -56,7 +73,6 @@ class MainActivity : ComponentActivity() {
             val recorder = Recorder.Builder()
                 .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
                 .build()
-
             videoCapture = VideoCapture.withOutput(recorder)
 
             val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
@@ -71,14 +87,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startRecording() {
-        val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
-            .format(System.currentTimeMillis())
+        val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
         val file = File(externalCacheDir, "$name.mp4")
-
-        val outputOptions = FileOutputOptions.Builder(file).build()
-
+        val mediaStoreOutput = FileOutputOptions.Builder(file).build()
         val curRecording = videoCapture?.output
-            ?.prepareRecording(this, outputOptions)
+            ?.prepareRecording(this, mediaStoreOutput)
             ?.withAudioEnabled()
             ?.start(ContextCompat.getMainExecutor(this)) { recordEvent ->
                 when (recordEvent) {
@@ -92,7 +105,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-
         recording = curRecording
     }
 
@@ -105,8 +117,8 @@ class MainActivity : ComponentActivity() {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "video/mp4"
             putExtra(Intent.EXTRA_STREAM, uri)
-            `package` = "org.telegram.messenger"
+            setPackage("org.telegram.messenger")
         }
-        startActivity(Intent.createChooser(intent, "Share video"))
+        startActivity(Intent.createChooser(intent, "Share to Telegram"))
     }
 }
