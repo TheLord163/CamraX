@@ -1,4 +1,4 @@
-name: Build APK
+name: Android CI
 
 on:
   push:
@@ -11,21 +11,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout project
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Set up JDK 17
         uses: actions/setup-java@v3
         with:
-          java-version: '17'
           distribution: 'temurin'
+          java-version: 17
 
       - name: Set up Gradle (без wrapper)
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '8.4'  # можно изменить на нужную, например 8.5 или 8.7
+          gradle-version: '8.4' # или '8.5', '8.7' — можно обновить при желании
 
-      - name: Build debug APK
+      - name: Build APK
         run: gradle assembleDebug
 
       - name: Upload APK
